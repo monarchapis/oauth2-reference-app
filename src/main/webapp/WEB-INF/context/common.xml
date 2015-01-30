@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:p="http://www.springframework.org/schema/p"
+	xmlns:util="http://www.springframework.org/schema/util" xmlns:jee="http://www.springframework.org/schema/jee"
+	xmlns:context="http://www.springframework.org/schema/context" xmlns:tx="http://www.springframework.org/schema/tx"
+	xsi:schemaLocation="
+    http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-3.0.xsd
+    http://www.springframework.org/schema/util http://www.springframework.org/schema/util/spring-util-3.0.xsd
+    http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd
+    http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx.xsd">
+	<context:annotation-config />
+
+	<import resource="properties-context.xml" />
+
+	<!-- Saves a locale change using a cookie -->
+	<bean id="localeResolver"
+		class="org.springframework.web.servlet.i18n.CookieLocaleResolver" />
+
+	<!-- Application Message Bundle -->
+	<bean id="messageSource"
+		class="org.springframework.context.support.ReloadableResourceBundleMessageSource">
+		<property name="basename" value="/WEB-INF/messages/messages" />
+		<property name="cacheSeconds" value="0" />
+	</bean>
+
+	<!-- json view, capable of converting any POJO to json format -->
+	<bean name="jsonView"
+		class="org.springframework.web.servlet.view.json.MappingJackson2JsonView" />
+
+	<!-- Resolves view names to protected .jsp resources within the /WEB-INF/views 
+		directory -->
+	<bean
+		class="org.springframework.web.servlet.view.InternalResourceViewResolver">
+		<property name="prefix" value="/WEB-INF/views/" />
+		<property name="suffix" value=".jsp" />
+	</bean>
+
+	<!-- Default ExceptionHandler -->
+	<bean id="defaultExceptionHandler"
+		class="org.springframework.web.servlet.handler.SimpleMappingExceptionResolver">
+		<property name="order" value="10" />
+		<property name="defaultErrorView" value="error" />
+	</bean>
+
+	<bean id="hawkV1AuthenticationSigner"
+		class="com.monarchapis.driver.authentication.HawkV1AuthenticationSigner" />
+
+	<!---->
+	<bean id="authenticationService"
+		class="com.monarchapis.oauth.service.impl.DemoAuthenticationService">
+		<property name="directoryFromResource"
+			value="file:#{systemProperties['api.conf.dir']}/oauth-demo-users.properties" />
+	</bean>
+	
+	<!--
+	<bean id="authenticationService"
+		class="com.monarchapis.oauth.service.impl.LdapAuthenticationService">
+		<property name="ldapURL" value="${authentication.ldapURL}" />
+		<property name="authMethod" value="${authentication.authMethod}" />
+		<property name="userDN" value="${authentication.userDN}" />
+		<property name="uidAttribute" value="${authentication.uidAttribute}" />
+		<property name="baseDN" value="${authentication.baseDN}" />
+		<property name="useSSL" value="${authentication.useSSL}" />
+		<property name="groupListAsString" value="${authentication.groupList}" />
+	</bean>
+	-->
+
+	<bean id="loginExtendedDataRegistry"
+		class="com.monarchapis.oauth.extended.LoginExtendedDataRegistry">
+		<property name="items">
+			<list>
+				<!-- Plugins to retrieve extended user data go here -->
+			</list>
+		</property>
+	</bean>
+
+	<bean id="providerCredentials"
+		class="com.monarchapis.driver.authentication.ProviderCredentials">
+		<constructor-arg value="${monarch.providerKey}" />
+		<constructor-arg value="${monarch.sharedSecret}" />
+	</bean>
+
+	<bean id="openApi"
+		class="com.monarchapis.driver.service.v1.impl.OpenApiDriver">
+		<constructor-arg value="${serviceApi.url}" />
+	</bean>
+
+	<bean id="serviceInfoResolver"
+		class="com.monarchapis.driver.service.v1.SingleServiceInfoResolver">
+		<constructor-arg ref="openApi" />
+		<constructor-arg value="${monarch.environmentName}" />
+		<constructor-arg value="" />
+		<constructor-arg value="${monarch.providerKey}" />
+	</bean>
+
+	<bean id="serviceApi" class="com.monarchapis.driver.service.v1.impl.ServiceApiDriver">
+		<constructor-arg value="${serviceApi.url}" />
+		<constructor-arg ref="providerCredentials" />
+		<constructor-arg ref="serviceInfoResolver" />
+		<constructor-arg ref="hawkV1AuthenticationSigner" />
+	</bean>
+</beans>

@@ -1,0 +1,265 @@
+/* ===========================================================================
+ * IMPORTS
+ * =========================================================================== */
+
+@import url(//fonts.googleapis.com/css?family=Ubuntu:300,400);
+@import "bootstrap.less";
+
+/* ===========================================================================
+ * GLOBAL STYLES
+ * =========================================================================== */
+
+@monarch-background-color-lighter: #F9F9F9;
+@monarch-background-color-light: #EEE;
+@monarch-accent-color: #CCC;
+@monarch-box-shadow: 0 2px 3px @monarch-accent-color;
+
+body {
+	font-family: 'Ubuntu', sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+	font-family: 'Ubuntu', sans-serif;
+	font-weight: 300;
+	margin-top: 0;
+}
+
+header,
+footer {
+	text-align: center;
+	margin: 15px 0;
+}
+
+.error {
+	color: @state-danger-text;
+	font-size: @font-size-small;
+}
+
+.vertical-divider {
+	.box-shadow(@monarch-box-shadow);
+	background-color: #f9f9f9;
+	clear: both;
+	position: relative;
+}
+
+.vertical-divider:after {
+	clear: both;
+	content: " ";
+	display: block;
+	height: 0;
+	visibility: hidden;
+}
+
+.vertical-divider .column:not(:first-child):after, .vertical-divider .columns:not(:first-child):after{
+	background: @monarch-accent-color;
+	bottom: 0;
+	content: " ";
+	margin-left: -30px;
+	position: absolute;
+	top: 0;
+	width: 1px;
+}
+
+.app-logo {
+	margin-left: 25%;
+	margin-right: 25%;
+}
+
+/* ===========================================================================
+ * IMAGE STYLES
+ * =========================================================================== */
+
+.logo span {
+	.sr-only();
+}
+
+#loader {
+	background-image: url(../images/loader.gif);
+	background-repeat: no-repeat;
+	width: 50px;
+	height: 50px;
+	margin: 0 auto;
+}
+
+#companyLogo {
+	background-image: url(../images/company-logo.png);
+	background-repeat: no-repeat;
+	width: 148px;
+	height: 75px;
+	margin: 0 auto;
+}
+
+#monarchLogo {
+	background-image: url(../images/monarch-logo.png);
+	background-repeat: no-repeat;
+	width: 212px;
+	height: 50px;
+	margin: 0 auto;
+}
+
+@media (-webkit-min-device-pixel-ratio: 2),
+		(-moz-min-device-pixel-ratio: 2),
+		(-o-min-device-pixel-ratio: 2/1),
+		(min-device-pixel-ratio: 2),
+		(min-resolution: 192dpi),
+		(min-resolution: 2dppx) {
+	#loader {
+		background-image: url(../images/loader@2x.gif);
+		background-size: 50px 50px;
+	}
+
+	#companyLogo {
+		background-image: url(../images/company-logo@2x.png);
+		background-size: 148px 75px;
+	}
+
+	#monarchLogo {
+		background-image: url(../images/monarch-logo@2x.png);
+		background-size: 212px 50px;
+	}
+}
+
+/* ===========================================================================
+ * LOADING VIEW
+ * =========================================================================== */
+
+#initial-loading-message {
+	.make-xs-column(12);
+	.make-sm-column(6);
+	.make-sm-column-offset(3);
+	.make-md-column(4);
+	.make-md-column-offset(4);
+	.make-lg-column(4);
+	.make-lg-column-offset(4);
+	.box-shadow(@monarch-box-shadow);
+	background-color: @monarch-background-color-lighter;
+	padding: 30px 30px;
+
+	h3 {
+		text-align: center;
+		margin: 15px 0 0 0;
+	}
+}
+
+/* ===========================================================================
+ * DEFAULT VIEW
+ * =========================================================================== */
+
+.monarch-container {
+	.make-xs-column(12);
+	.make-sm-column(8);
+	.make-sm-column-offset(2);
+	.make-md-column(6);
+	.make-md-column-offset(3);
+	.box-shadow(@monarch-box-shadow);
+	background-color: @monarch-background-color-lighter;
+	padding: 30px 30px;
+
+	#redirect {
+		margin: 30px 0 0 0;
+	}
+}
+
+/* ===========================================================================
+ * AUTHENTICATION VIEW
+ * =========================================================================== */
+
+#authenticateForm {
+	.make-xs-column(12);
+	.make-sm-column(6);
+	.make-sm-column-offset(3);
+	.make-md-column(4);
+	.make-md-column-offset(4);
+	.box-shadow(@monarch-box-shadow);
+	background-color: @monarch-background-color-lighter;
+	padding: 15px 30px 30px;
+
+	h1 {
+		font-size: 20px;
+		text-align: center;
+		margin: 0 0 15px 0;
+	}
+
+	p {
+		margin-top: 15px;
+	}
+}
+
+/* ===========================================================================
+ * PERMISSIONS VIEW
+ * =========================================================================== */
+
+#requestContainer {
+	.make-xs-column(12);
+	.make-sm-column(8);
+
+	#authControls {
+		background-color: @monarch-background-color-light;
+		margin-top: 30px;
+		padding: 15px;
+		border-radius: @border-radius-base;
+	}
+
+	h1 {
+		font-size: 24px;
+		font-weight: 400;
+	}
+
+	h2 {
+		font-size: 18px;
+	}
+
+	button {
+		margin: 10px 10px 0 0;
+	}
+}
+
+#applicationContainer {
+	.make-xs-column(12);
+	.make-sm-column(4);
+
+	#applicationLogo {
+		max-width: 100%;
+	}
+
+	#monarchInfo {
+		border-top: 1px solid @monarch-accent-color;
+		margin-top: 30px;
+		padding-top: 30px;
+	}
+
+	#disclaimer {
+		font-size: @font-size-small;
+		font-style: italic;
+	}
+}
+
+#requestContainer,
+#applicationContainer {
+	background-color: @monarch-background-color-lighter;
+	padding: 30px;
+}
+
+@media (max-width: @screen-xs-max) {
+	#requestContainer,
+	#applicationContainer {
+		padding: 15px;
+	}
+
+	#requestContainer {
+		padding-bottom: 30px;
+
+		#authControls {
+			margin-top: 15px;
+		}
+	}
+
+	#applicationContainer {
+		padding-top: 30px;
+
+		#monarchInfo {
+			margin-top: 15px;
+			padding-top: 15px;
+		}
+	}
+}
