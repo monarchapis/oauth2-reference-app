@@ -25,7 +25,6 @@ import org.springframework.web.context.request.WebRequest;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.monarchapis.driver.exception.ApiErrorException;
 import com.monarchapis.driver.model.AuthorizationDetails;
-import com.monarchapis.driver.model.Permission;
 import com.monarchapis.driver.model.Token;
 import com.monarchapis.driver.model.TokenRequest;
 import com.monarchapis.oauth.model.OAuthInfo;
@@ -167,16 +166,6 @@ public class OAuth2AuthorizationCodeController extends BaseAuthController {
 			if (authorizationDetails == null) {
 				logger.debug("Application not found for {}, {}", apiKey, callbackUri);
 				return returnInvalidRequest(model, callbackUri, state);
-			}
-
-			// Use the permission list returned by the service because globally
-			// managed permissions might be more inclusive.
-			if (authorizationDetails.getPermissions() != null) {
-				permissions.clear();
-
-				for (Permission permission : authorizationDetails.getPermissions()) {
-					permissions.add(permission.getName());
-				}
 			}
 
 			OAuthInfo oauthInfo = new OAuthInfo();

@@ -22,7 +22,6 @@ import org.springframework.web.bind.annotation.SessionAttributes;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.monarchapis.driver.model.AuthorizationDetails;
-import com.monarchapis.driver.model.Permission;
 import com.monarchapis.driver.model.Token;
 import com.monarchapis.driver.model.TokenRequest;
 import com.monarchapis.oauth.model.LoginResult;
@@ -75,16 +74,6 @@ public class OAuth2PasswordController extends BaseAuthController {
 				logger.debug("Application not found for {}", apiKey);
 
 				return error("unauthorized_client");
-			}
-
-			// Use the permission list returned by the service because globally
-			// managed permissions might be more inclusive.
-			if (authorizationDetails.getPermissions() != null) {
-				permissions.clear();
-
-				for (Permission permission : authorizationDetails.getPermissions()) {
-					permissions.add(permission.getName());
-				}
 			}
 
 			LoginResult loginResult = authenticationService.authenticate(username, password);
