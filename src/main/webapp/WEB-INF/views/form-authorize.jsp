@@ -34,25 +34,19 @@
 		</div>
 	</div>
 	<div id="applicationContainer" class="column">
-		<c:if test="${not empty(application.applicationImageUrl)}">
-			<p class="text-center app-logo"><img id="applicationLogo" class="img-responsize" src="${application.applicationImageUrl}" alt="${application.name} Logo" /></p>
+		<c:if test="${application.applicationImageUrl.isPresent()}">
+			<p class="text-center app-logo"><img id="applicationLogo" class="img-responsize" src="${application.applicationImageUrl.get()}" alt="${application.name} Logo" /></p>
 		</c:if>
-		<c:if test="${not empty(application.companyName) || not empty(application.name)}">
-			<c:if test="${not empty(application.name)}">
-				<h3><c:out value="${application.name}" /></h3>
-			</c:if>
-			<c:if test="${not empty(application.companyName) && application.companyName != application.name}">
-				<h5>by <c:out value="${application.companyName}" /></h5>
-			</c:if>
-		</c:if>
-		<c:if test="${not empty(application.description)}">
+		<h3><c:out value="${application.name}" /></h3>
+		<h5>by <c:out value="${application.companyName}" /></h5>
+		<c:if test="${application.description.isPresent()}">
 			<p><c:out value="${application.description}" /></p>
 		</c:if>
 		<div id="monarchInfo">
 			<h4>What's going on here?</h4>
 			<p>Monarch is an API platform, developed by CapTech Ventures, Inc., that enables companies to open their APIs to the public.</p>
-			<c:if test="${application.companyName != 'Company Name, Inc.'}">
-			<p id="disclaimer">Company Name is not affiliated with <c:choose><c:when test="${not empty(application.companyName)}"><c:out value="${application.companyName}" /></c:when><c:otherwise><c:out value="${application.name}" /></c:otherwise></c:choose>. You should allow access only if you trust this application with the information listed on the left.
+			<c:if test="${application.companyName != companyName}">
+			<p id="disclaimer"><c:out value="companyName" /> is not affiliated with <c:out value="${application.companyName}" />. You should allow access only if you trust this application with the information listed on the left.
 			</c:if>
 		</div>
 	</div>

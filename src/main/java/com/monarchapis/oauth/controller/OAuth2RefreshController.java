@@ -17,8 +17,11 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import com.fasterxml.jackson.core.JsonGenerator;
-import com.monarchapis.driver.model.Token;
-import com.monarchapis.driver.model.TokenRequest;
+import com.monarchapis.api.exception.ApiError;
+import com.monarchapis.api.exception.ApiErrorException;
+import com.monarchapis.api.v1.client.SecurityResource;
+import com.monarchapis.api.v1.model.TokenDetails;
+import com.monarchapis.api.v1.model.TokenRequest;
 
 @Controller
 public class OAuth2RefreshController extends BaseAuthController {
@@ -29,18 +32,16 @@ public class OAuth2RefreshController extends BaseAuthController {
 	/* SERVICE CALLS -------------------------------------------------------- */
 
 	@RequestMapping(value = "/token", params = "grant_type=refresh_token", method = RequestMethod.POST)
-	public ResponseEntity<byte[]> createAccessToken(
-			@RequestHeader(value = "Authorization") final String authorization,
+	public ResponseEntity<byte[]> createAccessToken(@RequestHeader(value = "Authorization") final String authorization,
 			@RequestParam(value = "refresh_token") final String refreshToken,
-			@RequestParam(value = "scope", required = false) final String redirectUri,
-			HttpServletResponse response, Model model) throws Exception {
+			@RequestParam(value = "scope", required = false) final String redirectUri, HttpServletResponse response,
+			Model model) throws Exception {
 		try {
 			if (authorization == null) {
 				return error("access_denied");
 			}
 
-			String[] unpw = StringUtils.split(new String(Base64.decodeBase64(authorization),
-					"UTF-8"), ':');
+			String[] unpw = StringUtils.split(new String(Base64.decodeBase64(authorization), "UTF-8"), ':');
 
 			if (unpw.length != 2) {
 				return error("access_denied");
@@ -49,11 +50,16 @@ public class OAuth2RefreshController extends BaseAuthController {
 			String apiKey = unpw[0];
 			String sharedSecret = unpw[1];
 
-			serviceApi.authenticateClient(AUTH_SCHEME, apiKey, sharedSecret);
+			SecurityResource securityResource = serviceApi.getSecurityResource();
 
-			Token currentToken = serviceApi.getTokenByRefresh(apiKey, refreshToken, redirectUri);
+			ResponseEntity<byte[]> re = authenticateClient(AUTH_SCHEME, apiKey, sharedSecret);
+			if (re != null) {
+				return re;
+			}
 
-			if (currentToken == null || !"authorization_code".equals(currentToken.getGrantType())
+			TokenDetails currentToken = securityResource.loadToken(apiKey, null, refreshToken, redirectUri);
+
+			if (!"authorization_code".equals(currentToken.getGrantType())
 					|| !"bearer".equals(currentToken.getTokenType())) {
 				logger.debug("Access token {} not found for API Key {}", refreshToken, apiKey);
 				return error("access_denied");
@@ -62,45 +68,42 @@ public class OAuth2RefreshController extends BaseAuthController {
 			// TODO check scope
 
 			logger.debug("Revoking current token: {}", currentToken);
-			boolean revoked = serviceApi.revokeToken(apiKey, currentToken.getToken(), redirectUri);
+			securityResource.revokeToken(apiKey, currentToken.getToken(), redirectUri);
 
-			if (revoked) {
-				TokenRequest tokenRequest = new TokenRequest();
-				tokenRequest.setAuthorizationScheme(AUTH_SCHEME);
-				tokenRequest.setApiKey(apiKey);
-				tokenRequest.setGrantType(currentToken.getGrantType());
-				tokenRequest.setPermissions(currentToken.getPermissions());
-				tokenRequest.setUserId(currentToken.getUserId());
-				tokenRequest.setUserContext(currentToken.getUserContext());
-				tokenRequest.setExtended(currentToken.getExtended());
-				tokenRequest.setTokenType("bearer");
-				// Omitting state from the bearer token
+			TokenRequest tokenRequest = new TokenRequest();
+			tokenRequest.setAuthorizationScheme(AUTH_SCHEME);
+			tokenRequest.setApiKey(apiKey);
+			tokenRequest.setGrantType(currentToken.getGrantType());
+			tokenRequest.setPermissions(currentToken.getPermissions());
+			tokenRequest.setUserId(currentToken.getUserId());
+			tokenRequest.setUserContext(currentToken.getUserContext());
+			tokenRequest.setExtended(currentToken.getExtended());
+			tokenRequest.setTokenType("bearer");
+			// Omitting state from the bearer token
 
-				logger.debug("Creating access token: {}", tokenRequest);
-				Token accessToken = serviceApi.createToken(tokenRequest);
+			logger.debug("Creating access token: {}", tokenRequest);
+			TokenDetails accessToken = securityResource.createToken(tokenRequest);
 
-				if (accessToken != null) {
-					ByteArrayOutputStream baos = new ByteArrayOutputStream();
-					JsonGenerator writer = getStreamWriter(baos);
+			ByteArrayOutputStream baos = new ByteArrayOutputStream();
+			JsonGenerator writer = getStreamWriter(baos);
 
-					writer.writeStartObject();
-					writer.writeObjectField("access_token", accessToken.getToken());
-					writer.writeObjectField("token_type", accessToken.getTokenType());
-					writer.writeObjectField("expires_in", accessToken.getExpiresIn());
-					writer.writeObjectField("refresh_token", accessToken.getRefreshToken());
-					writer.writeEndObject();
-					writer.flush();
+			writer.writeStartObject();
+			writer.writeObjectField("access_token", accessToken.getToken());
+			writer.writeObjectField("token_type", accessToken.getTokenType());
+			writer.writeObjectField("expires_in", accessToken.getExpiresIn());
+			writer.writeObjectField("refresh_token", accessToken.getRefreshToken());
+			writer.writeEndObject();
+			writer.flush();
 
-					response.setHeader("Cache-Control", "no-store");
-					response.setHeader("Pragma", "no-cache");
+			response.setHeader("Cache-Control", "no-store");
+			response.setHeader("Pragma", "no-cache");
 
-					return json(baos);
-				}
-			}
-
-			logger.debug("The access token was not created");
+			return json(baos);
+		} catch (ApiErrorException apie) {
+			ApiError error = apie.getError();
+			logger.debug("The access token was not created: {}", error);
 			return error("invalid_grant");
-		} catch (Throwable e) {
+		} catch (Exception e) {
 			logger.error("Could not create access token", e);
 			return internalError();
 		}

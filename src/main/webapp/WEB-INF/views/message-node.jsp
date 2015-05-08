@@ -1,4 +1,4 @@
-<%@ page import="org.pegdown.PegDownProcessor, com.monarchapis.driver.model.Message" %>
+<%@ page import="org.pegdown.PegDownProcessor, com.monarchapis.api.v1.model.MessageDetails" %>
 <%@ taglib uri="http://java.sun.com/jsp/jstl/core" prefix="c" %>
 <%@ taglib uri="http://java.sun.com/jsp/jstl/fmt" prefix="fmt" %>
 <%@ taglib uri="http://www.springframework.org/tags/form" prefix="form" %>
@@ -10,7 +10,7 @@
 		</c:when>
 		<c:when test="${message.format == 'markdown'}">
 			<%
-			Message message = (Message) request.getAttribute("message");
+			MessageDetails message = (MessageDetails) request.getAttribute("message");
 			PegDownProcessor pdp = new PegDownProcessor();
 			String mdHtml = pdp.markdownToHtml(message.getContent());
 			out.print(mdHtml);

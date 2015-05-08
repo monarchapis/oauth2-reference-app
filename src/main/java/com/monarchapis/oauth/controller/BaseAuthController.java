@@ -1,5 +1,6 @@
 package com.monarchapis.oauth.controller;
 
+import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.ArrayList;
@@ -19,16 +20,31 @@ import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.lang3.StringUtils;
 import org.joda.time.Period;
 import org.joda.time.format.PeriodFormat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
 import org.springframework.ui.ModelMap;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.support.DefaultSessionAttributeStore;
+import org.springframework.web.context.request.WebRequest;
 
-import com.monarchapis.driver.model.AuthorizationDetails;
-import com.monarchapis.driver.model.Client;
-import com.monarchapis.driver.model.LocaleInfo;
-import com.monarchapis.driver.model.Message;
-import com.monarchapis.driver.model.Permission;
-import com.monarchapis.driver.service.v1.ServiceApi;
+import com.fasterxml.jackson.core.JsonGenerationException;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.base.Optional;
+import com.monarchapis.api.exception.ApiError;
+import com.monarchapis.api.exception.ApiErrorException;
+import com.monarchapis.api.v1.client.SecurityResource;
+import com.monarchapis.api.v1.client.ServiceApi;
+import com.monarchapis.api.v1.model.AuthorizationDetails;
+import com.monarchapis.api.v1.model.AuthorizationRequest;
+import com.monarchapis.api.v1.model.ClientAuthenticationRequest;
+import com.monarchapis.api.v1.model.ClientDetails;
+import com.monarchapis.api.v1.model.LocaleInfo;
+import com.monarchapis.api.v1.model.MessageDetails;
+import com.monarchapis.api.v1.model.MessageDetailsList;
+import com.monarchapis.api.v1.model.PermissionDetails;
+import com.monarchapis.api.v1.model.PermissionMessagesRequest;
 import com.monarchapis.oauth.extended.LoginExtendedData;
 import com.monarchapis.oauth.extended.LoginExtendedDataRegistry;
 import com.monarchapis.oauth.model.OAuthInfo;
@@ -36,6 +52,8 @@ import com.monarchapis.oauth.model.TypeReference;
 import com.monarchapis.oauth.service.AuthenticationService;
 
 public abstract class BaseAuthController extends BaseController {
+	private static final Logger logger = LoggerFactory.getLogger(BaseAuthController.class);
+
 	@Value("${google.analytics.account}")
 	private String googleAccount;
 
@@ -45,6 +63,9 @@ public abstract class BaseAuthController extends BaseController {
 	@Value("${oauth.forgot.username.url}")
 	private String forgotUsernameUrl;
 
+	@Value("${company.name}")
+	private String companyName;
+
 	@Inject
 	protected ServiceApi serviceApi;
 
@@ -53,6 +74,54 @@ public abstract class BaseAuthController extends BaseController {
 
 	@Inject
 	protected LoginExtendedDataRegistry loginExtendedDataRegistry;
+
+	protected String getAuthorizationScheme() {
+		throw new UnsupportedOperationException();
+	}
+
+	protected String getOAuthResponseType() {
+		throw new UnsupportedOperationException();
+	}
+
+	protected String doAuthorize(String apiKey, final String redirectUri, String scope, final String state,
+			final String refererUrl, DefaultSessionAttributeStore status, WebRequest request, ModelMap model)
+			throws UnsupportedEncodingException {
+		String callbackUri = redirectUri != null ? redirectUri : refererUrl;
+
+		try {
+			Map<String, Integer> failedLogins = getFailedLogins(model);
+			model.put("failedLogins", failedLogins);
+
+			if (callbackUri == null) {
+				logger.debug("The callback URI was not provided");
+				return returnInvalidRequest(model, callbackUri, state);
+			}
+
+			Set<String> permissions = scopeToPermissions(scope);
+
+			AuthorizationDetails authorizationDetails = getAuthorizationDetails(apiKey, callbackUri, permissions);
+
+			OAuthInfo oauthInfo = new OAuthInfo();
+			oauthInfo.setResponseType(getOAuthResponseType());
+			oauthInfo.setRedirectUri(redirectUri);
+			oauthInfo.setPermissions(permissions);
+			oauthInfo.setState(state);
+			oauthInfo.setScheme(getAuthorizationScheme());
+
+			setSessionVariable("oauthInfo", oauthInfo, status, request, model);
+			setSessionVariable("authorizationDetails", authorizationDetails, status, request, model);
+
+			model.put("phase", "authenticate");
+
+			return "authorize";
+		} catch (ApiErrorException are) {
+			logger.debug("The service API returned an error", are);
+			return returnInvalidRequest(model, callbackUri, state);
+		} catch (Exception e) {
+			logger.error("Internal error occurred", e);
+			return returnInternalError(model, callbackUri, state);
+		}
+	}
 
 	protected Set<String> scopeToPermissions(String scope) {
 		Set<String> ret = new HashSet<String>();
@@ -68,12 +137,37 @@ public abstract class BaseAuthController extends BaseController {
 		return ret;
 	}
 
+	protected AuthorizationDetails getAuthorizationDetails(String apiKey, String callbackUri, Set<String> permissions) {
+		SecurityResource securityResource = serviceApi.getSecurityResource();
+
+		AuthorizationRequest ar = new AuthorizationRequest();
+		ar.setAuthorizationScheme(getAuthorizationScheme());
+		ar.setApiKey(apiKey);
+		ar.setCallbackUri(Optional.of(callbackUri));
+		ar.setPermissions(permissions);
+
+		logger.debug("Fetching authorization details");
+		AuthorizationDetails authorizationDetails = securityResource.getAuthorizationDetails(ar);
+
+		// Use the permission list returned by the service because globally
+		// managed permissions might be more inclusive.
+		if (authorizationDetails.getPermissions() != null) {
+			permissions.clear();
+
+			for (PermissionDetails permission : authorizationDetails.getPermissions()) {
+				permissions.add(permission.getName());
+			}
+		}
+
+		return authorizationDetails;
+	}
+
 	protected Map<String, Object> getLoginExtendedData(String username, String password,
 			AuthorizationDetails authorizationDetails) {
 		Set<String> flags = new HashSet<String>();
 		Map<String, Object> extended = new HashMap<String, Object>();
 
-		for (Permission permission : authorizationDetails.getPermissions()) {
+		for (PermissionDetails permission : authorizationDetails.getPermissions()) {
 			Set<String> next = permission.getFlags();
 
 			if (next != null) {
@@ -86,17 +180,17 @@ public abstract class BaseAuthController extends BaseController {
 				loginExtendedData.addExtendedData(username, password, extended);
 			}
 		}
+
 		return extended;
 	}
 
-	protected String doAuthorize(HttpServletRequest request, HttpServletResponse response,
-			OAuthInfo oauthInfo, AuthorizationDetails authorizationDetails, ModelMap model) {
-		Client client = setAuthorizationModelAttributes(model, request, oauthInfo,
-				authorizationDetails);
+	protected String doAuthorize(HttpServletRequest request, HttpServletResponse response, OAuthInfo oauthInfo,
+			AuthorizationDetails authorizationDetails, ModelMap model) {
+		ClientDetails client = setAuthorizationModelAttributes(model, request, oauthInfo, authorizationDetails);
 		model.put("phase", "authorize");
 
-		if (client.getExpiration() != null) {
-			int expriesIn = (int) client.getExpiration().longValue();
+		if (client.getExpiration().isPresent()) {
+			int expriesIn = client.getExpiration().get().intValue();
 			int hours = expriesIn / 3600;
 			int minutes = (expriesIn % 3600) / 60;
 			int seconds = expriesIn % 60;
@@ -109,24 +203,29 @@ public abstract class BaseAuthController extends BaseController {
 		return "form-authorize";
 	}
 
-	protected Client setAuthorizationModelAttributes(ModelMap model, HttpServletRequest request,
+	protected ClientDetails setAuthorizationModelAttributes(ModelMap model, HttpServletRequest request,
 			OAuthInfo oauthInfo, AuthorizationDetails authorizationDetails) {
-		Client client = authorizationDetails.getClient();
-		List<Message> permissionMessages = getPermissionMessages(request,
-				oauthInfo.getPermissions());
+		ClientDetails client = authorizationDetails.getClient();
+		List<MessageDetails> permissionMessages = getPermissionMessages(request, oauthInfo.getPermissions());
 
 		model.put("application", authorizationDetails.getApplication());
 		model.put("permissions", permissionMessages);
 		model.put("client", authorizationDetails.getClient());
+
 		return client;
 	}
 
-	protected List<Message> getPermissionMessages(HttpServletRequest request,
-			Set<String> permissions) {
+	protected List<MessageDetails> getPermissionMessages(HttpServletRequest request, Set<String> permissions) {
 		if (permissions != null && permissions.size() > 0) {
 			List<LocaleInfo> locales = getLocaleInfos(request);
 
-			return serviceApi.getPermissionMessages(locales, permissions);
+			PermissionMessagesRequest pmr = new PermissionMessagesRequest();
+			pmr.setLocales(locales);
+			pmr.setPermissions(permissions);
+
+			MessageDetailsList list = serviceApi.getSecurityResource().getPermissionMessages(pmr);
+
+			return list.getItems();
 		}
 
 		return Collections.emptyList();
@@ -138,8 +237,11 @@ public abstract class BaseAuthController extends BaseController {
 
 		while (e.hasMoreElements()) {
 			Locale locale = (Locale) e.nextElement();
-			locales.add(new LocaleInfo(locale.getLanguage(), locale.getCountry(), locale
-					.getVariant()));
+			LocaleInfo li = new LocaleInfo();
+			li.setLanguage(locale.getLanguage());
+			li.setCountry(Optional.fromNullable(locale.getCountry()));
+			li.setVariant(Optional.fromNullable(locale.getVariant()));
+			locales.add(li);
 		}
 
 		return locales;
@@ -158,9 +260,8 @@ public abstract class BaseAuthController extends BaseController {
 	}
 
 	protected Map<String, Integer> getFailedLogins(ModelMap model) {
-		Map<String, Integer> failedLogins = getModelVariable("failedLogins",
-				new TypeReference<Map<String, Integer>>() {
-				}, model);
+		Map<String, Integer> failedLogins = getModelVariable("failedLogins", new TypeReference<Map<String, Integer>>() {
+		}, model);
 
 		if (failedLogins == null) {
 			failedLogins = new HashMap<String, Integer>();
@@ -226,6 +327,29 @@ public abstract class BaseAuthController extends BaseController {
 		return String.format("%s://%s%s%s", protocol, hostname, port, request.getContextPath());
 	}
 
+	protected ResponseEntity<byte[]> authenticateClient(String authorizationScheme, String apiKey, String sharedSecret)
+			throws JsonGenerationException, JsonProcessingException, IOException {
+		ClientAuthenticationRequest car = new ClientAuthenticationRequest();
+		car.setAuthorizationScheme(authorizationScheme);
+		car.setApiKey(apiKey);
+		car.setSharedSecret(Optional.fromNullable(sharedSecret));
+
+		try {
+			logger.debug("Authenticating client {}", apiKey);
+			serviceApi.getSecurityResource().authenticateClient(car);
+
+			return null;
+		} catch (ApiErrorException apie) {
+			ApiError error = apie.getError();
+
+			if (error.getCode() == 401) {
+				return error("access_denied");
+			} else {
+				return internalError();
+			}
+		}
+	}
+
 	private static String getProtocol(HttpServletRequest request) {
 		return request.isSecure() ? "https" : "http";
 	}
@@ -262,5 +386,10 @@ public abstract class BaseAuthController extends BaseController {
 	@ModelAttribute("forgotUsernameUrl")
 	public String getForgotUsernameUrl() {
 		return forgotUsernameUrl;
+	}
+
+	@ModelAttribute("companyName")
+	public String getCompanyName() {
+		return companyName;
 	}
 }
