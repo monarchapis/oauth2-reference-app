@@ -40,7 +40,7 @@
 		<h3><c:out value="${application.name}" /></h3>
 		<h5>by <c:out value="${application.companyName}" /></h5>
 		<c:if test="${application.description.isPresent()}">
-			<p><c:out value="${application.description}" /></p>
+			<p><c:out value="${application.description.get()}" /></p>
 		</c:if>
 		<div id="monarchInfo">
 			<h4>What's going on here?</h4>
