@@ -20,16 +20,18 @@ import org.springframework.web.bind.annotation.SessionAttributes;
 import org.springframework.web.bind.support.DefaultSessionAttributeStore;
 import org.springframework.web.context.request.WebRequest;
 
-import com.monarchapis.driver.model.AuthorizationDetails;
-import com.monarchapis.driver.model.Client;
-import com.monarchapis.driver.model.Token;
-import com.monarchapis.driver.model.TokenRequest;
+import com.google.common.base.Optional;
+import com.monarchapis.api.v1.client.SecurityResource;
+import com.monarchapis.api.v1.model.AuthorizationDetails;
+import com.monarchapis.api.v1.model.ClientDetails;
+import com.monarchapis.api.v1.model.Extended;
+import com.monarchapis.api.v1.model.TokenDetails;
+import com.monarchapis.api.v1.model.TokenRequest;
 import com.monarchapis.oauth.model.LoginResult;
 import com.monarchapis.oauth.model.OAuthInfo;
 
 @Controller
-@SessionAttributes(value = { "oauthInfo", "authorizationDetails", "phase", "failedLogins",
-		"username" })
+@SessionAttributes(value = { "oauthInfo", "authorizationDetails", "phase", "failedLogins", "username" })
 public class OAuth2CommonController extends BaseAuthController {
 	private static final Logger logger = LoggerFactory.getLogger(OAuth2CommonController.class);
 
@@ -50,18 +52,16 @@ public class OAuth2CommonController extends BaseAuthController {
 	 *         was flagged as invalid.
 	 */
 	@RequestMapping(value = "/authorize/renderForm", method = RequestMethod.POST)
-	public String renderForm(
-			@RequestHeader(value = "User-Agent", required = false) String userAgent,
-			HttpServletResponse response, ModelMap model,
-			@RequestParam("standalone") boolean standalone, @RequestParam("framed") boolean framed,
-			@RequestParam("popup") boolean popup, @RequestParam("webview") boolean isWebView)
-			throws Exception {
+	public String renderForm(@RequestHeader(value = "User-Agent", required = false) String userAgent,
+			HttpServletResponse response, ModelMap model, @RequestParam("standalone") boolean standalone,
+			@RequestParam("framed") boolean framed, @RequestParam("popup") boolean popup,
+			@RequestParam("webview") boolean isWebView) throws Exception {
 		try {
 			String phase = getModelVariable("phase", String.class, model);
 			OAuthInfo oauthInfo = getModelVariable("oauthInfo", OAuthInfo.class, model);
 			AuthorizationDetails authorizationDetails = getModelVariable("authorizationDetails",
 					AuthorizationDetails.class, model);
-			Client client = authorizationDetails.getClient();
+			ClientDetails client = authorizationDetails.getClient();
 
 			if (!nullCheck(phase, oauthInfo)) {
 				logger.debug("Session expired");
@@ -84,8 +84,7 @@ public class OAuth2CommonController extends BaseAuthController {
 
 			// 2. Is the browser using UIWebView control (iOS)?
 			//
-			if (isWebView && !standalone && !userAgent.matches("/safari/")
-					&& !client.isAllowWebView()) {
+			if (isWebView && !standalone && !userAgent.matches("/safari/") && !client.isAllowWebView()) {
 				logger.debug("Web view controls are not allowed for this client");
 				model.put("phase", "invalid-request");
 				return "form-invalid-request";
@@ -106,10 +105,9 @@ public class OAuth2CommonController extends BaseAuthController {
 	}
 
 	@RequestMapping(value = "/authorize/authenticate", method = RequestMethod.POST)
-	public String authenticate(@RequestParam("username") String username,
-			@RequestParam("password") String password, HttpServletRequest req,
-			HttpServletResponse response, DefaultSessionAttributeStore status, WebRequest request,
-			ModelMap model) throws Exception {
+	public String authenticate(@RequestParam("username") String username, @RequestParam("password") String password,
+			HttpServletRequest req, HttpServletResponse response, DefaultSessionAttributeStore status,
+			WebRequest request, ModelMap model) throws Exception {
 		try {
 			String phase = getModelVariable("phase", String.class, model);
 			OAuthInfo oauthInfo = getModelVariable("oauthInfo", OAuthInfo.class, model);
@@ -124,18 +122,19 @@ public class OAuth2CommonController extends BaseAuthController {
 				return error(response, "There was an error in the request.");
 			}
 
+			logger.debug("Authenticating user: {}", username);
 			LoginResult loginResult = authenticationService.authenticate(username, password);
 
 			if (loginResult == LoginResult.SUCCESS) {
 				setSessionVariable("username", username, status, request, model);
 
-				Map<String, Object> extended = getLoginExtendedData(username, password,
-						authorizationDetails);
+				Map<String, Object> extended = getLoginExtendedData(username, password, authorizationDetails);
 				oauthInfo.setExtendedData(extended);
 				setSessionVariable("oauthInfo", oauthInfo, status, request, model);
 
 				if (authorizationDetails.getClient().isAutoAuthorize()) {
 					model.put("phase", "authorize");
+
 					return authorizationDecision("accepted", req, response, status, model);
 				}
 
@@ -159,9 +158,8 @@ public class OAuth2CommonController extends BaseAuthController {
 	}
 
 	@RequestMapping(value = "/authorize/authorize", method = RequestMethod.POST)
-	public String authorizationDecision(@RequestParam("choice") String choice,
-			HttpServletRequest request, HttpServletResponse response,
-			DefaultSessionAttributeStore status, ModelMap model) throws Exception {
+	public String authorizationDecision(@RequestParam("choice") String choice, HttpServletRequest request,
+			HttpServletResponse response, DefaultSessionAttributeStore status, ModelMap model) throws Exception {
 		try {
 			String phase = getModelVariable("phase", String.class, model);
 			OAuthInfo oauthInfo = getModelVariable("oauthInfo", OAuthInfo.class, model);
@@ -184,6 +182,8 @@ public class OAuth2CommonController extends BaseAuthController {
 			String qsSeperator = "implicit".equals(oauthInfo.getResponseType()) ? "#" : "?";
 			sb.append(redirectUri.contains(qsSeperator) ? "&" : qsSeperator);
 
+			SecurityResource securityResource = serviceApi.getSecurityResource();
+
 			if ("accepted".equals(choice)) {
 				if ("code".equals(oauthInfo.getResponseType())) {
 					TokenRequest codeRequest = new TokenRequest();
@@ -192,14 +192,16 @@ public class OAuth2CommonController extends BaseAuthController {
 					codeRequest.setGrantType("authorization_code");
 					codeRequest.setPermissions(oauthInfo.getPermissions());
 					codeRequest.setUri(redirectUri);
-					codeRequest.setUserId(username);
-					codeRequest.setUserContext(username);
+					codeRequest.setUserId(Optional.of(username));
+					codeRequest.setUserContext(Optional.of(username));
 					codeRequest.setTokenType("authorization");
-					codeRequest.setState(oauthInfo.getState());
-					codeRequest.setExtended(oauthInfo.getExtendedData());
+					codeRequest.setState(Optional.of(oauthInfo.getState()));
+					Extended extended = new Extended();
+					extended.putAll(oauthInfo.getExtendedData());
+					codeRequest.setExtended(extended);
 
 					logger.debug("Creating authorization code: {}", codeRequest);
-					Token authorizationCode = serviceApi.createToken(codeRequest);
+					TokenDetails authorizationCode = securityResource.createToken(codeRequest);
 
 					sb.append("code=");
 					sb.append(URLEncoder.encode(authorizationCode.getToken(), "UTF-8"));
@@ -210,14 +212,16 @@ public class OAuth2CommonController extends BaseAuthController {
 					tokenRequest.setGrantType("implicit");
 					tokenRequest.setPermissions(oauthInfo.getPermissions());
 					tokenRequest.setUri(redirectUri);
-					tokenRequest.setUserId(username);
-					tokenRequest.setUserContext(username);
-					tokenRequest.setExtended(oauthInfo.getExtendedData());
+					tokenRequest.setUserId(Optional.of(username));
+					tokenRequest.setUserContext(Optional.of(username));
+					Extended extended = new Extended();
+					extended.putAll(oauthInfo.getExtendedData());
+					tokenRequest.setExtended(extended);
 					tokenRequest.setTokenType("bearer");
 					// Omitting state from the bearer token
 
 					logger.debug("Creating access token: {}", tokenRequest);
-					Token accessToken = serviceApi.createToken(tokenRequest);
+					TokenDetails accessToken = securityResource.createToken(tokenRequest);
 
 					sb.append("access_token=");
 					sb.append(URLEncoder.encode(accessToken.getToken(), "UTF-8"));
@@ -255,8 +259,7 @@ public class OAuth2CommonController extends BaseAuthController {
 	}
 
 	@RequestMapping(value = "/authorize/return", method = RequestMethod.GET)
-	public String returnToApplication(HttpServletResponse response, ModelMap model)
-			throws Exception {
+	public String returnToApplication(HttpServletResponse response, ModelMap model) throws Exception {
 		OAuthInfo oauthInfo = getModelVariable("oauthInfo", OAuthInfo.class, model);
 
 		if (!nullCheck(oauthInfo)) {
@@ -280,7 +283,6 @@ public class OAuth2CommonController extends BaseAuthController {
 	public String getReturnUrl(ModelMap model) {
 		OAuthInfo oauthInfo = getModelVariable("oauthInfo", OAuthInfo.class, model);
 
-		return oauthInfo != null ? getReturnUrl(oauthInfo.getRedirectUri(), oauthInfo.getState())
-				: "";
+		return oauthInfo != null ? getReturnUrl(oauthInfo.getRedirectUri(), oauthInfo.getState()) : "";
 	}
 }

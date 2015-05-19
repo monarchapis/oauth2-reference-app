@@ -1,8 +1,6 @@
 package com.monarchapis.oauth.controller;
 
 import java.io.ByteArrayOutputStream;
-import java.util.Map;
-import java.util.Set;
 
 import javax.servlet.http.HttpServletResponse;
 
@@ -23,20 +21,25 @@ import org.springframework.web.bind.support.DefaultSessionAttributeStore;
 import org.springframework.web.context.request.WebRequest;
 
 import com.fasterxml.jackson.core.JsonGenerator;
-import com.monarchapis.driver.exception.ApiErrorException;
-import com.monarchapis.driver.model.AuthorizationDetails;
-import com.monarchapis.driver.model.Token;
-import com.monarchapis.driver.model.TokenRequest;
-import com.monarchapis.oauth.model.OAuthInfo;
+import com.monarchapis.api.exception.ApiErrorException;
+import com.monarchapis.api.v1.client.SecurityResource;
+import com.monarchapis.api.v1.model.TokenDetails;
+import com.monarchapis.api.v1.model.TokenRequest;
 
 @Controller
-@SessionAttributes(value = { "oauthInfo", "authorizationDetails", "phase", "failedLogins",
-		"username" })
+@SessionAttributes(value = { "oauthInfo", "authorizationDetails", "phase", "failedLogins", "username" })
 public class OAuth2AuthorizationCodeController extends BaseAuthController {
-	private static final Logger logger = LoggerFactory
-			.getLogger(OAuth2AuthorizationCodeController.class);
+	private static final Logger logger = LoggerFactory.getLogger(OAuth2AuthorizationCodeController.class);
 
 	private static final String AUTH_SCHEME = "oauth2-authorization-code";
+	
+	protected String getAuthorizationScheme() {
+		return AUTH_SCHEME;
+	}
+	
+	protected String getOAuthResponseType() {
+		return "code";
+	}
 
 	/* SERVICE CALLS -------------------------------------------------------- */
 
@@ -52,8 +55,7 @@ public class OAuth2AuthorizationCodeController extends BaseAuthController {
 			String sharedSecret = null;
 
 			if (authorization != null) {
-				String[] unpw = StringUtils.split(new String(Base64.decodeBase64(authorization),
-						"UTF-8"), ':');
+				String[] unpw = StringUtils.split(new String(Base64.decodeBase64(authorization), "UTF-8"), ':');
 
 				if (unpw.length != 2) {
 					return error("access_denied");
@@ -69,14 +71,17 @@ public class OAuth2AuthorizationCodeController extends BaseAuthController {
 				return error("access_denied");
 			}
 
-			if (!serviceApi.authenticateClient(AUTH_SCHEME, apiKey, sharedSecret)) {
-				return error("access_denied");
+			SecurityResource securityResource = serviceApi.getSecurityResource();
+
+			ResponseEntity<byte[]> re = authenticateClient(AUTH_SCHEME, apiKey, sharedSecret);
+			if (re != null) {
+				return re;
 			}
 
-			Token authorizationCode = serviceApi.getToken(apiKey, code, redirectUri);
+			logger.debug("Fetching authorization code {}", code);
+			TokenDetails authorizationCode = securityResource.loadToken(apiKey, code, null, redirectUri);
 
-			if (authorizationCode == null
-					|| !"authorization_code".equals(authorizationCode.getGrantType())
+			if (!"authorization_code".equals(authorizationCode.getGrantType())
 					|| !"authorization".equals(authorizationCode.getTokenType())) {
 				logger.debug("Authorization code {} not found for API Key {}", code, apiKey);
 				return error("access_denied");
@@ -89,8 +94,7 @@ public class OAuth2AuthorizationCodeController extends BaseAuthController {
 			 * included ensure their values are identical.
 			 */
 			if (redirectUri != null && !redirectUri.equals(authorizationCode.getUri())) {
-				logger.debug("Invalid redirect URI {}, expected {}", redirectUri,
-						authorizationCode.getUri());
+				logger.debug("Invalid redirect URI {}, expected {}", redirectUri, authorizationCode.getUri());
 				return error("access_denied");
 			}
 
@@ -107,30 +111,28 @@ public class OAuth2AuthorizationCodeController extends BaseAuthController {
 			// Omitting state from the bearer token
 
 			logger.debug("Creating access token: {}", tokenRequest);
-			Token accessToken = serviceApi.createToken(tokenRequest);
-			serviceApi.revokeToken(apiKey, code, redirectUri);
+			TokenDetails accessToken = securityResource.createToken(tokenRequest);
+			securityResource.revokeToken(apiKey, code, redirectUri);
 
-			if (accessToken != null) {
-				ByteArrayOutputStream baos = new ByteArrayOutputStream();
-				JsonGenerator writer = getStreamWriter(baos);
+			ByteArrayOutputStream baos = new ByteArrayOutputStream();
+			JsonGenerator writer = getStreamWriter(baos);
 
-				writer.writeStartObject();
-				writer.writeObjectField("access_token", accessToken.getToken());
-				writer.writeObjectField("token_type", accessToken.getTokenType());
-				writer.writeObjectField("expires_in", accessToken.getExpiresIn());
-				writer.writeObjectField("refresh_token", accessToken.getRefreshToken());
-				writer.writeEndObject();
-				writer.flush();
+			writer.writeStartObject();
+			writer.writeObjectField("access_token", accessToken.getToken());
+			writer.writeObjectField("token_type", accessToken.getTokenType());
+			writer.writeObjectField("expires_in", accessToken.getExpiresIn());
+			writer.writeObjectField("refresh_token", accessToken.getRefreshToken());
+			writer.writeEndObject();
+			writer.flush();
 
-				response.setHeader("Cache-Control", "no-store");
-				response.setHeader("Pragma", "no-cache");
+			response.setHeader("Cache-Control", "no-store");
+			response.setHeader("Pragma", "no-cache");
 
-				return json(baos);
-			} else {
-				logger.debug("The access token was not created");
-				return error("invalid_grant");
-			}
-		} catch (Throwable e) {
+			return json(baos);
+		} catch (ApiErrorException are) {
+			logger.debug("The access token was not created");
+			return error("invalid_grant");
+		} catch (Exception e) {
 			logger.error("Could not create access token", e);
 			return internalError();
 		}
@@ -139,54 +141,12 @@ public class OAuth2AuthorizationCodeController extends BaseAuthController {
 	/* AUTHORIZATION UI ----------------------------------------------------- */
 
 	@RequestMapping(value = "/authorize", params = "response_type=code", method = RequestMethod.GET)
-	public String renderUI(
-			@RequestHeader(value = "referer", required = false) final String refererUrl,
+	public String renderUI(@RequestHeader(value = "referer", required = false) final String refererUrl,
 			@RequestParam(value = "client_id") final String apiKey,
 			@RequestParam(value = "redirect_uri", required = false) final String redirectUri,
 			@RequestParam(value = "scope", required = false) String scope,
-			@RequestParam(value = "state", required = false) final String state,
-			DefaultSessionAttributeStore status, WebRequest request, ModelMap model,
-			HttpServletResponse response) throws Exception {
-		String callbackUri = redirectUri != null ? redirectUri : refererUrl;
-
-		try {
-			Map<String, Integer> failedLogins = getFailedLogins(model);
-			model.put("failedLogins", failedLogins);
-
-			if (callbackUri == null) {
-				logger.debug("The callback URI was not provided");
-				return returnInvalidRequest(model, callbackUri, state);
-			}
-
-			Set<String> permissions = scopeToPermissions(scope);
-
-			AuthorizationDetails authorizationDetails = serviceApi.getAuthorizationDetails(
-					AUTH_SCHEME, apiKey, callbackUri, permissions);
-
-			if (authorizationDetails == null) {
-				logger.debug("Application not found for {}, {}", apiKey, callbackUri);
-				return returnInvalidRequest(model, callbackUri, state);
-			}
-
-			OAuthInfo oauthInfo = new OAuthInfo();
-			oauthInfo.setResponseType("code");
-			oauthInfo.setRedirectUri(redirectUri);
-			oauthInfo.setPermissions(permissions);
-			oauthInfo.setState(state);
-			oauthInfo.setScheme(AUTH_SCHEME);
-
-			setSessionVariable("oauthInfo", oauthInfo, status, request, model);
-			setSessionVariable("authorizationDetails", authorizationDetails, status, request, model);
-
-			model.put("phase", "authenticate");
-
-			return "authorize";
-		} catch (ApiErrorException are) {
-			logger.debug("The service API returned an error", are);
-			return returnInvalidRequest(model, callbackUri, state);
-		} catch (Throwable e) {
-			logger.error("Internal error occurred", e);
-			return returnInternalError(model, callbackUri, state);
-		}
+			@RequestParam(value = "state", required = false) final String state, DefaultSessionAttributeStore status,
+			WebRequest request, ModelMap model, HttpServletResponse response) throws Exception {
+		return doAuthorize(apiKey, redirectUri, scope, state, refererUrl, status, request, model);
 	}
 }
