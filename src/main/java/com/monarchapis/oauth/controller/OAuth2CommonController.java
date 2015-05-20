@@ -228,9 +228,9 @@ public class OAuth2CommonController extends BaseAuthController {
 					sb.append("&token_type=");
 					sb.append(URLEncoder.encode(accessToken.getTokenType(), "UTF-8"));
 
-					if (accessToken.getExpiresIn() != null) {
+					if (accessToken.getExpiresIn().isPresent()) {
 						sb.append("&expires_in=");
-						sb.append(accessToken.getExpiresIn());
+						sb.append(accessToken.getExpiresIn().get());
 					}
 				}
 

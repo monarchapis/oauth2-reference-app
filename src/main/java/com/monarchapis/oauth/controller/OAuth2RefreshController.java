@@ -90,8 +90,8 @@ public class OAuth2RefreshController extends BaseAuthController {
 			writer.writeStartObject();
 			writer.writeObjectField("access_token", accessToken.getToken());
 			writer.writeObjectField("token_type", accessToken.getTokenType());
-			writer.writeObjectField("expires_in", accessToken.getExpiresIn());
-			writer.writeObjectField("refresh_token", accessToken.getRefreshToken());
+			writer.writeObjectField("expires_in", accessToken.getExpiresIn().orNull());
+			writer.writeObjectField("refresh_token", accessToken.getRefreshToken().orNull());
 			writer.writeEndObject();
 			writer.flush();
 
